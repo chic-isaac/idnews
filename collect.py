@@ -77,19 +77,31 @@ def fetch(q, lang):
     url = f"https://news.google.com/rss/search?q={urllib.parse.quote(q + ' when:3d')}&hl={hl}&gl=ID&ceid={ceid}"
     return feedparser.parse(url).entries
 
-cache, ntr = load(CACHE, {}), 0
+import urllib.request
+cache, ntr, fails = load(CACHE, {}), 0, 0
+def gtx(text, src, tgt):
+    url = ("https://translate.googleapis.com/translate_a/single?client=gtx&dt=t"
+           f"&sl={src}&tl={tgt}&q={urllib.parse.quote(text)}")
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    data = json.loads(urllib.request.urlopen(req, timeout=15).read().decode("utf-8"))
+    return "".join(s[0] for s in data[0] if s[0])
 def tr(text, src, tgt):
-    global ntr
+    global ntr, fails
     key = hashlib.md5(f"{src}{tgt}{text}".encode()).hexdigest()
-    if key in cache: return cache[key]
-    if ntr >= MAX_TR: return ""
-    try:
-        out = GoogleTranslator(source=src, target=tgt).translate(text) or ""
-        ntr += 1; time.sleep(0.25)
-        cache[key] = out
-        return out
-    except Exception:
-        return ""
+    if cache.get(key): return cache[key]
+    if ntr >= MAX_TR or fails >= 8: return ""
+    ntr += 1
+    for fn in (lambda: gtx(text, src, tgt),
+               lambda: GoogleTranslator(source=src, target=tgt).translate(text)):
+        try:
+            out = fn()
+            if out:
+                cache[key] = out; fails = 0; time.sleep(0.3)
+                return out
+        except Exception as e:
+            print("translate error:", repr(e)[:150])
+    fails += 1
+    return ""
 
 old = load(OUT, {"items": []})["items"]
 now = dt.datetime.now(dt.timezone.utc)
@@ -101,6 +113,7 @@ for lang, qs in (("id", Q_ID), ("en", Q_EN)):
         for e in fetch(q, lang):
             src = (e.get("source") or {}).get("title", "")
             title = e.title.rsplit(" - ", 1)[0].strip() if src and e.title.endswith(src) else e.title.strip()
+            if "vietnam" in src.lower(): continue
             iid = hashlib.md5(norm(title).encode()).hexdigest()[:12]
             if iid in items or not e.get("published_parsed"): continue
             pub = dt.datetime(*e.published_parsed[:6], tzinfo=dt.timezone.utc).isoformat()
@@ -121,11 +134,12 @@ for it in sorted(items.values(), key=lambda x: x["published"], reverse=True):
     out.append(it); seen.append((it, t))
 
 for it in out:
-    if "title_ko" in it: continue
     if it["lang"] == "id":
-        it["title_ko"], it["title_en"] = tr(it["title"], "id", "ko"), tr(it["title"], "id", "en")
+        if not it.get("title_ko"): it["title_ko"] = tr(it["title"], "id", "ko")
+        if not it.get("title_en"): it["title_en"] = tr(it["title"], "id", "en")
     else:
-        it["title_ko"], it["title_en"] = tr(it["title"], "en", "ko"), it["title"]
+        if not it.get("title_ko"): it["title_ko"] = tr(it["title"], "en", "ko")
+        it["title_en"] = it["title"]
 
 os.makedirs("data", exist_ok=True)
 json.dump({"updated": now.isoformat(), "items": out}, open(OUT, "w", encoding="utf-8"), ensure_ascii=False)
