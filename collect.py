@@ -2,10 +2,9 @@
 import json, re, time, hashlib, os, urllib.parse
 import datetime as dt
 import feedparser
-from deep_translator import GoogleTranslator
 
 OUT, CACHE = "data/news.json", "data/cache.json"
-KEEP_DAYS, MAX_TR, USD_IDR = 14, 400, 16500
+KEEP_DAYS, MAX_TR, USD_IDR = 14, 1500, 16500
 
 Q_ID = ["pabrik baru", "peletakan batu pertama pabrik", "investasi pabrik kawasan industri",
         "smelter", "MoU investasi pabrik", "izin usaha industri", "relokasi pabrik",
@@ -77,31 +76,37 @@ def fetch(q, lang):
     url = f"https://news.google.com/rss/search?q={urllib.parse.quote(q + ' when:3d')}&hl={hl}&gl=ID&ceid={ceid}"
     return feedparser.parse(url).entries
 
-import urllib.request
-cache, ntr, fails = load(CACHE, {}), 0, 0
-def gtx(text, src, tgt):
-    url = ("https://translate.googleapis.com/translate_a/single?client=gtx&dt=t"
-           f"&sl={src}&tl={tgt}&q={urllib.parse.quote(text)}")
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    data = json.loads(urllib.request.urlopen(req, timeout=15).read().decode("utf-8"))
-    return "".join(s[0] for s in data[0] if s[0])
+cache, ntr = load(CACHE, {}), 0
+ARGOS = None
+def setup_argos():
+    # 무료 오프라인 번역 모델(Argos) 설치: 인니어->영어, 영어->한국어 (외부 번역 서버 호출 없음)
+    global ARGOS
+    try:
+        import argostranslate.package as ap, argostranslate.translate as at
+        have = {(p.from_code, p.to_code) for p in ap.get_installed_packages()}
+        need = [x for x in (("id", "en"), ("en", "ko")) if x not in have]
+        if need:
+            ap.update_package_index()
+            for pkg in ap.get_available_packages():
+                if (pkg.from_code, pkg.to_code) in need:
+                    ap.install_from_path(pkg.download())
+        ARGOS = at
+    except Exception as e:
+        print("argos setup error:", repr(e)[:200])
+
 def tr(text, src, tgt):
-    global ntr, fails
+    global ntr
     key = hashlib.md5(f"{src}{tgt}{text}".encode()).hexdigest()
     if cache.get(key): return cache[key]
-    if ntr >= MAX_TR or fails >= 8: return ""
-    ntr += 1
-    for fn in (lambda: gtx(text, src, tgt),
-               lambda: GoogleTranslator(source=src, target=tgt).translate(text)):
-        try:
-            out = fn()
-            if out:
-                cache[key] = out; fails = 0; time.sleep(0.3)
-                return out
-        except Exception as e:
-            print("translate error:", repr(e)[:150])
-    fails += 1
-    return ""
+    if ARGOS is None or ntr >= MAX_TR: return ""
+    try:
+        out = ARGOS.translate(text, src, tgt).strip()
+        ntr += 1
+        if out: cache[key] = out
+        return out
+    except Exception as e:
+        print("translate error:", repr(e)[:150])
+        return ""
 
 old = load(OUT, {"items": []})["items"]
 now = dt.datetime.now(dt.timezone.utc)
@@ -113,9 +118,8 @@ for lang, qs in (("id", Q_ID), ("en", Q_EN)):
         for e in fetch(q, lang):
             src = (e.get("source") or {}).get("title", "")
             title = e.title.rsplit(" - ", 1)[0].strip() if src and e.title.endswith(src) else e.title.strip()
-            if "vietnam" in src.lower(): continue
             iid = hashlib.md5(norm(title).encode()).hexdigest()[:12]
-            if iid in items or not e.get("published_parsed"): continue
+            if iid in items or not e.get("published_parsed") or "vietnam" in src.lower(): continue
             pub = dt.datetime(*e.published_parsed[:6], tzinfo=dt.timezone.utc).isoformat()
             if pub < cut: continue
             text = title + " " + e.get("summary", "")
@@ -133,13 +137,15 @@ for it in sorted(items.values(), key=lambda x: x["published"], reverse=True):
     if t and any(it["topic"] == o["topic"] and len(t & s) / len(t | s) >= 0.6 for o, s in seen): continue
     out.append(it); seen.append((it, t))
 
-for it in out:
+need = [i for i in out if not i.get("title_ko") or not i.get("title_en")]
+if need: setup_argos()
+for it in need:
     if it["lang"] == "id":
-        if not it.get("title_ko"): it["title_ko"] = tr(it["title"], "id", "ko")
         if not it.get("title_en"): it["title_en"] = tr(it["title"], "id", "en")
+        if not it.get("title_ko") and it["title_en"]: it["title_ko"] = tr(it["title_en"], "en", "ko")
     else:
-        if not it.get("title_ko"): it["title_ko"] = tr(it["title"], "en", "ko")
         it["title_en"] = it["title"]
+        if not it.get("title_ko"): it["title_ko"] = tr(it["title"], "en", "ko")
 
 os.makedirs("data", exist_ok=True)
 json.dump({"updated": now.isoformat(), "items": out}, open(OUT, "w", encoding="utf-8"), ensure_ascii=False)
