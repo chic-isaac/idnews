@@ -68,7 +68,7 @@ const NEXT={build:["설비·건자재 수입 시작 — 프로젝트 화물 제�
 const COL=["#2f5bff","#2a9d8f","#64748b","#e5484d"];
 let D=[],UPD="",tab=0,S=JSON.parse(localStorage.getItem("idn")||"{}");
 S={lang:"ko",theme:0,fs:15,ac:0,saved:{},per:1,reg:"",topic:"",stage:"",sort:0,sf:"all",q:"",...S};
-const L=()=>T[S.lang],li=S.lang==="ko"?0:1;
+let li=S.lang==="ko"?0:1;const L=()=>T[S.lang];
 const save=()=>localStorage.setItem("idn",JSON.stringify(S));
 const hrs=i=>Math.max(0,Math.round((Date.now()-new Date(i.published))/36e5));
 const ti=i=>(S.lang==="ko"?i.title_ko:i.title_en)||i.title;
@@ -111,7 +111,7 @@ function sett(){const seg=(a,cur,key)=>`<div class="seg">${a.map(([v,t])=>`<butt
  <h2>${L().theme}</h2>${seg(L().th.map((t,k)=>[k,t]),S.theme,"th")}
  <h2>${L().fs}</h2><div style="display:flex;gap:12px;align-items:center"><button data-fs="-1">A−</button><input type="range" id="fs" min="12" max="20" value="${S.fs}" style="flex:1"><button data-fs="1">A+</button><b>${S.fs}px</b></div>
  <h2>${L().ac}</h2><div class="sw">${COL.map((c,k)=>`<i data-ac="${k}" class="${S.ac==k?"on":""}" style="background:${c}"></i>`).join("")}</div><hr><p class="mu">${L().note}</p>`}
-function render(){theme();$("#app").innerHTML=[today,leads,savedv,sett][tab]();$("#nav").innerHTML=L().tabs.map((t,k)=>`<button data-tab="${k}" class="${tab===k?"on":""}">${t}</button>`).join("");const q=$("#q");if(q)q.oninput=e=>{S.q=e.target.value;const p=e.target.selectionStart;render();const n=$("#q");n.focus();n.setSelectionRange(p,p)}}
+function render(){li=S.lang==="ko"?0:1;theme();$("#app").innerHTML=[today,leads,savedv,sett][tab]();$("#nav").innerHTML=L().tabs.map((t,k)=>`<button data-tab="${k}" class="${tab===k?"on":""}">${t}</button>`).join("");const q=$("#q");if(q)q.oninput=e=>{S.q=e.target.value;const p=e.target.selectionStart;render();const n=$("#q");n.focus();n.setSelectionRange(p,p)}}
 document.addEventListener("click",e=>{const g=k=>{const t=e.target.closest(`[data-${k}]`);return t?t.dataset[k]:null};let v;
  if((v=g("tab"))!==null)tab=+v;
  else if((v=g("bm"))!==null){const it=D.find(i=>i.id===v)||(S.saved[v]||{}).it;if(S.saved[v])delete S.saved[v];else S.saved[v]={it,st:0}}
