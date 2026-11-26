@@ -43,6 +43,12 @@ SECTORS = [("식품·농수산", r"pangan|makanan|food|palm oil|sawit|seafood|ag
            ("자동차", r"otomotif|mobil|automotive|vehicle|\bcar\b"),
            ("산업단지", r"kawasan industri|industrial (park|estate|zone)|\bkek\b|sez\b")]
 
+# 인도(India) 관련 기사 제외. 인도네시아(Indonesia/Indo)는 해당 없음. 제외 단어를 늘리려면 INDIA 패턴에 추가하세요.
+INDIA = re.compile(r"\bindia\b|\bindians?\b(?!\s+ocean)|new delhi|mumbai|bengaluru|bangalore|hyderabad|chennai|kolkata|"
+                   r"gujarat|maharashtra|\brupees?\b|\bsensex\b", re.I)
+def is_india(title, src=""):
+    return bool(INDIA.search(f"{title} {src}"))
+
 def first(rules, text):
     for k, p in rules:
         if re.search(p, text, re.I): return k
@@ -111,7 +117,7 @@ def tr(text, src, tgt):
 old = load(OUT, {"items": []})["items"]
 now = dt.datetime.now(dt.timezone.utc)
 cut = (now - dt.timedelta(days=KEEP_DAYS)).isoformat()
-items = {i["id"]: i for i in old if i["published"] >= cut}
+items = {i["id"]: i for i in old if i["published"] >= cut and not is_india(i["title"], i.get("source", ""))}
 
 for lang, qs in (("id", Q_ID), ("en", Q_EN)):
     for q in qs:
@@ -119,7 +125,7 @@ for lang, qs in (("id", Q_ID), ("en", Q_EN)):
             src = (e.get("source") or {}).get("title", "")
             title = e.title.rsplit(" - ", 1)[0].strip() if src and e.title.endswith(src) else e.title.strip()
             iid = hashlib.md5(norm(title).encode()).hexdigest()[:12]
-            if iid in items or not e.get("published_parsed") or "vietnam" in src.lower(): continue
+            if iid in items or not e.get("published_parsed") or "vietnam" in src.lower() or is_india(title, src): continue
             pub = dt.datetime(*e.published_parsed[:6], tzinfo=dt.timezone.utc).isoformat()
             if pub < cut: continue
             text = title + " " + e.get("summary", "")
